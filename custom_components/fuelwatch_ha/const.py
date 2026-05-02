@@ -30,4 +30,6 @@ FUEL_TYPE_TO_PRODUCT = {
     "Diesel": 4,
     "LPG": 5,
     "98RON": 6,
+    "E85": 10,
+    "Brand Diesel": 11,
 }

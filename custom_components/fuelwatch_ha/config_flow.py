@@ -22,9 +22,11 @@ from .const import (
 FUEL_TYPES = [
     "ULP",
     "Diesel",
+    "Brand Diesel",
     "PULP",
     "LPG",
     "98RON",
+    "E85",
 ]
 
 LOCATION_MODE_LABELS = {
