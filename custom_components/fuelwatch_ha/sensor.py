@@ -9,7 +9,8 @@ from .const import (
 )
 from .coordinator import FuelWatchCoordinator
 
-SENSOR_TYPES = ["cheapest", "average", "most_expensive"]
+TODAY_SENSOR_TYPES = ["cheapest", "average", "most_expensive"]
+TOMORROW_SENSOR_TYPES = ["tomorrow_cheapest", "tomorrow_average", "tomorrow_most_expensive"]
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -20,7 +21,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     sensors = [
         FuelWatchSensor(coordinator, entry, sensor_type)
-        for sensor_type in SENSOR_TYPES
+        for sensor_type in TODAY_SENSOR_TYPES + TOMORROW_SENSOR_TYPES
     ]
 
     async_add_entities(sensors)
@@ -32,16 +33,21 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
         self._config = dict(entry.data)
         self._entry_title = entry.title
         self._type = sensor_type
+        self._is_tomorrow = sensor_type.startswith("tomorrow_")
+        self._base_type = sensor_type.removeprefix("tomorrow_")
         self._is_legacy_entry = CONF_NAME not in self._config
         self._name_suffix = self._config.get(CONF_NAME, self._entry_title)
         self._slug = slugify(self._name_suffix)
 
     @property
     def name(self):
-        if self._is_legacy_entry:
-            return f"{self._type.replace('_', ' ').title()} Fuel"
+        base_label = self._base_type.replace("_", " ").title()
+        qualifier = " Tomorrow" if self._is_tomorrow else ""
 
-        return f"{self._type.replace('_', ' ').title()} Fuel {self._name_suffix}"
+        if self._is_legacy_entry:
+            return f"{base_label} Fuel{qualifier}"
+
+        return f"{base_label} Fuel{qualifier} {self._name_suffix}"
 
     @property
     def icon(self):
@@ -49,7 +55,18 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def suggested_object_id(self):
+        if self._is_tomorrow:
+            return f"tomorrow_{self._base_type}_fuel_{self._slug}"
         return f"{self._type}_fuel_{self._slug}"
+
+    @property
+    def available(self):
+        if not self._is_tomorrow:
+            return super().available
+        return (
+            self.coordinator.data is not None
+            and self.coordinator.data.get("tomorrow") is not None
+        )
 
     @property
     def state(self):
@@ -57,10 +74,14 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
         if not data:
             return None
 
-        if self._type == "average":
-            return data["average"]
+        source = data["tomorrow"] if self._is_tomorrow else data
+        if source is None:
+            return None
 
-        return data[self._type]["price"]
+        if self._base_type == "average":
+            return source["average"]
+
+        return source[self._base_type]["price"]
 
     @property
     def native_unit_of_measurement(self):
@@ -72,19 +93,23 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
         if not data:
             return {}
 
+        source = data["tomorrow"] if self._is_tomorrow else data
+        if source is None:
+            return {}
+
         base_attributes = {
             "location_name": data.get("location_label"),
             "radius_km": self._config.get(CONF_RADIUS),
             "fuel_type": self._config.get(CONF_FUEL_TYPE),
         }
 
-        if self._type == "average":
+        if self._base_type == "average":
             return {
                 **base_attributes,
-                "stations_count": data["count"],
+                "stations_count": source["count"],
             }
 
-        fuel = data[self._type]
+        fuel = source[self._base_type]
 
         return {
             **base_attributes,
