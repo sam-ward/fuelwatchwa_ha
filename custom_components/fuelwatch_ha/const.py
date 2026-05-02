@@ -5,6 +5,7 @@ CONF_LATITUDE = "latitude"
 CONF_LOCATION_MODE = "location_mode"
 CONF_LONGITUDE = "longitude"
 CONF_NAME = "name"
+CONF_PINNED_STATIONS = "pinned_stations"
 CONF_RADIUS = "radius"
 CONF_ZONE_NAME = "zone_name"
 

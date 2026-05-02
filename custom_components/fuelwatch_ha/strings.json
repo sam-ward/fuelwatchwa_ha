@@ -25,6 +25,13 @@
           "latitude": "Latitude",
           "longitude": "Longitude"
         }
+      },
+      "station": {
+        "title": "FuelWatch Setup - Station Selection",
+        "description": "Select specific stations to track, or leave empty to track area statistics ({count} stations found nearby).",
+        "data": {
+          "pinned_stations": "Stations"
+        }
       }
     },
     "error": {

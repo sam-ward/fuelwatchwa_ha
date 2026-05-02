@@ -14,6 +14,7 @@ from .const import (
     CONF_LOCATION_MODE,
     CONF_LONGITUDE,
     CONF_NAME,
+    CONF_PINNED_STATIONS,
     CONF_RADIUS,
     CONF_ZONE_NAME,
     DEFAULT_ZONE_NAME,
@@ -60,6 +61,7 @@ class FuelWatchCoordinator(DataUpdateCoordinator):
         self.zone_name = config.get(CONF_ZONE_NAME, DEFAULT_ZONE_NAME)
         self.latitude = config.get(CONF_LATITUDE)
         self.longitude = config.get(CONF_LONGITUDE)
+        self.pinned_stations = config.get(CONF_PINNED_STATIONS, [])
 
     async def _async_update_data(self):
         try:
@@ -70,70 +72,99 @@ class FuelWatchCoordinator(DataUpdateCoordinator):
 
             center_lat, center_lon, location_label = self._resolve_center_point()
 
-            data = await self.hass.async_add_executor_job(
-                self._fetch_stations,
+            today_raw, tomorrow_raw = await self.hass.async_add_executor_job(
+                self._fetch_today_and_tomorrow,
                 product,
             )
 
-            if not data:
+            today_result = self._process_stations(today_raw, center_lat, center_lon)
+
+            if today_result is None:
                 _LOGGER.warning(
                     "FuelWatch returned no stations for fuel type %s", self.fuel_type
                 )
                 return None
 
-            filtered = []
-
-            for station in data:
-                try:
-                    lat = float(station["latitude"])
-                    lon = float(station["longitude"])
-                    price = float(station["price"])
-
-                    distance = haversine(center_lat, center_lon, lat, lon)
-
-                    if distance <= self.radius:
-                        station["price"] = price
-                        station["distance"] = round(distance, 2)
-                        filtered.append(station)
-                except Exception:
-                    _LOGGER.debug("Skipping invalid station payload: %s", station)
-                    continue
-
-            if not filtered:
-                _LOGGER.info(
-                    "No FuelWatch stations found within %skm of %s for %s "
-                    "(fetched %s stations)",
-                    self.radius,
-                    location_label,
-                    self.fuel_type,
-                    len(data),
-                )
-                return None
-
-            cheapest = min(filtered, key=lambda item: item["price"])
-            most_expensive = max(filtered, key=lambda item: item["price"])
-            average = sum(item["price"] for item in filtered) / len(filtered)
+            tomorrow_result = self._process_stations(tomorrow_raw, center_lat, center_lon)
 
             _LOGGER.debug(
-                "FuelWatch matched %s of %s stations within %skm for %s using %s",
-                len(filtered),
-                len(data),
+                "FuelWatch update complete within %skm for %s using %s",
                 self.radius,
                 self.fuel_type,
                 location_label,
             )
 
             return {
-                "cheapest": cheapest,
-                "most_expensive": most_expensive,
-                "average": round(average, 1),
-                "count": len(filtered),
+                **today_result,
                 "location_label": location_label,
                 "location_mode": self.location_mode,
+                "tomorrow": tomorrow_result,
             }
         except Exception as err:
             _LOGGER.error("FuelWatch update failed: %s", err)
             return None
+
+    def _fetch_today_and_tomorrow(self, product: int):
+        """Fetch stations for today and tomorrow sequentially (shared client)."""
+        today = self._fetch_stations(product, day="today")
+        tomorrow = self._fetch_stations(product, day="tomorrow")
+        return today, tomorrow
+
+    def _process_stations(
+        self,
+        data: list[dict[str, Any]],
+        center_lat: float,
+        center_lon: float,
+    ) -> dict[str, Any] | None:
+        """Filter stations by radius, then compute statistics or match pinned stations."""
+        if not data:
+            return None
+
+        filtered = []
+        for station in data:
+            try:
+                lat = float(station["latitude"])
+                lon = float(station["longitude"])
+                price = float(station["price"])
+
+                distance = haversine(center_lat, center_lon, lat, lon)
+
+                if distance <= self.radius:
+                    station["price"] = price
+                    station["distance"] = round(distance, 2)
+                    filtered.append(station)
+            except Exception:
+                _LOGGER.debug("Skipping invalid station payload: %s", station)
+                continue
+
+        if not filtered:
+            return None
+
+        if self.pinned_stations:
+            result = {}
+            for name in self.pinned_stations:
+                match = next(
+                    (s for s in filtered if s.get("trading_name") == name), None
+                )
+                if match is None:
+                    _LOGGER.info("Pinned station '%s' not found within radius", name)
+                result[name] = match
+
+            if all(v is None for v in result.values()):
+                return None
+
+            return {"stations": result}
+
+        cheapest = min(filtered, key=lambda item: item["price"])
+        most_expensive = max(filtered, key=lambda item: item["price"])
+        average = sum(item["price"] for item in filtered) / len(filtered)
+
+        return {
+            "cheapest": cheapest,
+            "most_expensive": most_expensive,
+            "average": round(average, 1),
+            "count": len(filtered),
+        }
 
     def _resolve_center_point(self):
         if self.location_mode == LOCATION_MODE_COORDINATES:
@@ -159,9 +190,9 @@ class FuelWatchCoordinator(DataUpdateCoordinator):
         location_label = zone.name or entity_id
         return zone.attributes["latitude"], zone.attributes["longitude"], location_label
 
-    def _fetch_stations(self, product: int) -> list[dict[str, Any]]:
+    def _fetch_stations(self, product: int, day: str = "today") -> list[dict[str, Any]]:
         """Query FuelWatch and normalize the returned station objects."""
-        self.client.query(product=product)
+        self.client.query(product=product, day=day)
 
         if hasattr(self.client, "stations"):
             return self._normalize_station_objects(self.client.stations)
