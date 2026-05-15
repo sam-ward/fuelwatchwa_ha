@@ -16,6 +16,7 @@ from .const import (
     CONF_NAME,
     CONF_PINNED_STATIONS,
     CONF_RADIUS,
+    CONF_SCAN_INTERVAL,
     CONF_ZONE_NAME,
     DEFAULT_ZONE_NAME,
     FUEL_TYPE_TO_PRODUCT,
@@ -46,11 +47,12 @@ def haversine(lat1, lon1, lat2, lon2):
 
 class FuelWatchCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, config, entry_title):
+        interval = config.get(CONF_SCAN_INTERVAL, SCAN_INTERVAL)
         super().__init__(
             hass,
             _LOGGER,
             name="FuelWatch Coordinator",
-            update_interval=timedelta(seconds=SCAN_INTERVAL),
+            update_interval=None if interval == 0 else timedelta(seconds=interval),
         )
 
         self.client = FuelWatch()

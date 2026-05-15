@@ -8,7 +8,8 @@
           "name": "Location Name",
           "fuel_type": "Fuel Type",
           "radius": "Search Radius (km)",
-          "location_mode": "Location Source"
+          "location_mode": "Location Source",
+          "scan_interval": "Refresh Interval (seconds, 0 to disable)"
         }
       },
       "zone": {
@@ -36,11 +37,22 @@
     },
     "error": {
       "name_required": "Enter a location name.",
+      "name_duplicate": "A location with this name and fuel type already exists. Choose a different name.",
       "zone_required": "Enter a zone name or full zone entity ID.",
       "latitude_required": "Enter a latitude value.",
       "latitude_invalid": "Latitude must be a number between -90 and 90.",
       "longitude_required": "Enter a longitude value.",
       "longitude_invalid": "Longitude must be a number between -180 and 180."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "FuelWatch Options",
+        "data": {
+          "scan_interval": "Refresh Interval (seconds, 0 to disable)"
+        }
+      }
     }
   }
 }

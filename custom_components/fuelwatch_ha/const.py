@@ -7,6 +7,7 @@ CONF_LONGITUDE = "longitude"
 CONF_NAME = "name"
 CONF_PINNED_STATIONS = "pinned_stations"
 CONF_RADIUS = "radius"
+CONF_SCAN_INTERVAL = "scan_interval"
 CONF_ZONE_NAME = "zone_name"
 
 DEFAULT_NAME = "Home"

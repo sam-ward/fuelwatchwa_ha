@@ -1,4 +1,5 @@
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
@@ -7,6 +8,7 @@ from .const import (
     CONF_NAME,
     CONF_PINNED_STATIONS,
     CONF_RADIUS,
+    DOMAIN,
 )
 from .coordinator import FuelWatchCoordinator
 
@@ -19,6 +21,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     coordinator = FuelWatchCoordinator(hass, config, entry.title)
     await coordinator.async_config_entry_first_refresh()
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
 
     pinned = config.get(CONF_PINNED_STATIONS, [])
     if pinned:
@@ -36,27 +40,38 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities(sensors)
 
 
+def _device_name(config, entry_title):
+    location = config.get(CONF_NAME, entry_title)
+    fuel = config.get(CONF_FUEL_TYPE, "")
+    return f"{location} - {fuel}"
+
+
 class FuelWatchSensor(CoordinatorEntity, SensorEntity):
+    has_entity_name = True
+
     def __init__(self, coordinator, entry, sensor_type):
         super().__init__(coordinator)
         self._config = dict(entry.data)
         self._entry_title = entry.title
+        self._entry_id = entry.entry_id
         self._type = sensor_type
         self._is_tomorrow = sensor_type.startswith("tomorrow_")
         self._base_type = sensor_type.removeprefix("tomorrow_")
         self._is_legacy_entry = CONF_NAME not in self._config
-        self._name_suffix = self._config.get(CONF_NAME, self._entry_title)
-        self._slug = slugify(self._name_suffix)
+        self._slug = slugify(self._config.get(CONF_NAME, self._entry_title))
 
     @property
     def name(self):
         base_label = self._base_type.replace("_", " ").title()
         qualifier = " Tomorrow" if self._is_tomorrow else ""
+        return f"{base_label}{qualifier}"
 
-        if self._is_legacy_entry:
-            return f"{base_label} Fuel{qualifier}"
-
-        return f"{base_label} Fuel{qualifier} {self._name_suffix}"
+    @property
+    def device_info(self):
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name=_device_name(self._config, self._entry_title),
+        )
 
     @property
     def icon(self):
@@ -64,9 +79,7 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def suggested_object_id(self):
-        if self._is_tomorrow:
-            return f"tomorrow_{self._base_type}_fuel_{self._slug}"
-        return f"{self._type}_fuel_{self._slug}"
+        return f"{self._base_type}{'_tomorrow' if self._is_tomorrow else ''}"
 
     @property
     def available(self):
@@ -144,9 +157,13 @@ class FuelWatchSensor(CoordinatorEntity, SensorEntity):
 
 
 class FuelWatchStationSensor(CoordinatorEntity, SensorEntity):
+    has_entity_name = True
+
     def __init__(self, coordinator, entry, station_name, is_tomorrow):
         super().__init__(coordinator)
         self._config = dict(entry.data)
+        self._entry_title = entry.title
+        self._entry_id = entry.entry_id
         self._station_name = station_name
         self._is_tomorrow = is_tomorrow
         self._location_slug = slugify(self._config.get(CONF_NAME, entry.title))
@@ -154,9 +171,15 @@ class FuelWatchStationSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def name(self):
-        fuel = self._config.get(CONF_FUEL_TYPE, "")
         qualifier = " Tomorrow" if self._is_tomorrow else ""
-        return f"{self._station_name} {fuel}{qualifier}"
+        return f"{self._station_name}{qualifier}"
+
+    @property
+    def device_info(self):
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name=_device_name(self._config, self._entry_title),
+        )
 
     @property
     def icon(self):
@@ -164,8 +187,7 @@ class FuelWatchStationSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def suggested_object_id(self):
-        prefix = "tomorrow_" if self._is_tomorrow else ""
-        return f"{prefix}station_{self._station_slug}_{self._location_slug}"
+        return f"{self._station_slug}{'_tomorrow' if self._is_tomorrow else ''}"
 
     @property
     def available(self):

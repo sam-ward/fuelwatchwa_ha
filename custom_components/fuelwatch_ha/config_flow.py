@@ -14,6 +14,7 @@ from .const import (
     CONF_NAME,
     CONF_PINNED_STATIONS,
     CONF_RADIUS,
+    CONF_SCAN_INTERVAL,
     CONF_ZONE_NAME,
     DEFAULT_NAME,
     DEFAULT_RADIUS,
@@ -23,6 +24,7 @@ from .const import (
     LOCATION_MODE_COORDINATES,
     LOCATION_MODE_HOME,
     LOCATION_MODE_ZONE,
+    SCAN_INTERVAL,
 )
 from .coordinator import haversine
 
@@ -47,6 +49,10 @@ LOCATION_MODE_LABELS = {
 
 class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return FuelWatchOptionsFlow(config_entry)
 
     def __init__(self):
         self._step_one_input = {}
@@ -77,6 +83,9 @@ class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_LOCATION_MODE, default=LOCATION_MODE_HOME
                     ): vol.In(LOCATION_MODE_LABELS),
+                    vol.Required(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): vol.All(
+                        int, vol.Range(min=0)
+                    ),
                 }
             ),
             errors=errors,
@@ -151,10 +160,8 @@ class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             center_lat, center_lon = self._resolve_center_for_station_step()
             product = FUEL_TYPE_TO_PRODUCT[self._step_one_input[CONF_FUEL_TYPE]]
             radius = self._step_one_input[CONF_RADIUS]
-            client = FuelWatch()
             stations = await self.hass.async_add_executor_job(
                 self._fetch_filtered_stations,
-                client,
                 product,
                 center_lat,
                 center_lon,
@@ -210,13 +217,13 @@ class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _fetch_filtered_stations(
         self,
-        client: FuelWatch,
         product: int,
         center_lat: float,
         center_lon: float,
         radius: float,
     ) -> list[dict]:
         """Blocking: fetch and normalize stations, filter by radius."""
+        client = FuelWatch()
         client.query(product=product)
 
         if hasattr(client, "stations"):
@@ -290,6 +297,13 @@ class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors[CONF_NAME] = "name_required"
         else:
             data[CONF_NAME] = name
+            fuel_type = data.get(CONF_FUEL_TYPE, "")
+            existing = {
+                (entry.data.get(CONF_NAME, "").strip().lower(), entry.data.get(CONF_FUEL_TYPE, ""))
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+            }
+            if (name.lower(), fuel_type) in existing:
+                errors[CONF_NAME] = "name_duplicate"
 
         location_mode = data.get(CONF_LOCATION_MODE, LOCATION_MODE_HOME)
         if location_mode == LOCATION_MODE_HOME:
@@ -320,3 +334,28 @@ class FuelWatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return None
 
         return coordinate
+
+
+class FuelWatchOptionsFlow(config_entries.OptionsFlow):
+    def __init__(self, config_entry):
+        self._config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current = self._config_entry.options.get(
+            CONF_SCAN_INTERVAL,
+            self._config_entry.data.get(CONF_SCAN_INTERVAL, SCAN_INTERVAL),
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SCAN_INTERVAL, default=current): vol.All(
+                        int, vol.Range(min=0)
+                    ),
+                }
+            ),
+        )
