@@ -55,7 +55,7 @@ class FuelWatchCoordinator(DataUpdateCoordinator):
             update_interval=None if interval == 0 else timedelta(seconds=interval),
         )
 
-        self.client = FuelWatch()
+        self.client = None
         self.name = config.get(CONF_NAME) or entry_title
         self.fuel_type = config[CONF_FUEL_TYPE]
         self.radius = config[CONF_RADIUS]
@@ -193,7 +193,17 @@ class FuelWatchCoordinator(DataUpdateCoordinator):
         return zone.attributes["latitude"], zone.attributes["longitude"], location_label
 
     def _fetch_stations(self, product: int, day: str = "today") -> list[dict[str, Any]]:
-        """Query FuelWatch and normalize the returned station objects."""
+        """Query FuelWatch and normalize the returned station objects.
+
+        The client is constructed lazily, here, rather than in __init__:
+        this method only ever runs inside hass.async_add_executor_job, and
+        FuelWatch() triggers a blocking file read (fake_useragent loading
+        its bundled data via importlib) that must not happen on the event
+        loop.
+        """
+        if self.client is None:
+            self.client = FuelWatch()
+
         self.client.query(product=product, day=day)
 
         if hasattr(self.client, "stations"):
